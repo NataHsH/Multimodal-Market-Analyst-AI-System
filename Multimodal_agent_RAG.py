@@ -11,6 +11,10 @@ import open_clip
 from PIL import Image
 import torch
 from langchain_community.vectorstores.utils import filter_complex_metadata
+from langchain.retrievers.multi_vector import MultiVectorRetriever
+from langchain.storage import InMemoryStore
+from uuid import uuid4
+
 
 # === CLIP model ===
 clip_model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
@@ -162,3 +166,55 @@ results = image_store.similarity_search_by_vector(clip_embedder.embed_query(quer
 print("\n🔍 Top matching images:")
 for r in results:
     print(f"[{r.metadata.get('type')}] page {r.metadata.get('page')}")
+
+# Storage for comparison of additional vectors
+vectorstore_backing_store = InMemoryStore()
+
+# creat retriever
+retriever = MultiVectorRetriever(
+    vectorstore=text_store,
+    docstore=vectorstore_backing_store,
+    id_key="doc_id",
+)
+
+
+# === Подготовка: привязка уникальных ID
+for doc in text_docs:
+    if "doc_id" not in doc.metadata:
+        doc.metadata["doc_id"] = str(uuid4())
+
+# === 1. Инициализация общего docstore
+docstore = InMemoryStore()
+docstore.mset([(doc.metadata["doc_id"], doc) for doc in text_docs])
+
+# 4. Извлекаем эмбеддинги документов (как в vectorstore.similarity_search)
+text_relevant_docs = text_store.similarity_search(query, k=5)
+image_relevant_docs = image_store.similarity_search_by_vector(
+    clip_embedder.embed_query(query), k=5
+)
+
+# 5. Собираем уникальные doc_id (по связке `page`)
+combined_docs = []
+pages_seen = set()
+
+for doc in text_relevant_docs + image_relevant_docs:
+    page = doc.metadata.get("page")
+    if page not in pages_seen:
+        # найдём основной текстовый документ по page
+        for main_doc in text_docs:
+            if main_doc.metadata.get("page") == page:
+                combined_docs.append(main_doc)
+                pages_seen.add(page)
+                break
+
+# 6. Печать результата
+print("\n🔍 MultiModal Search Results:")
+for i, doc in enumerate(combined_docs, 1):
+    print(f"{i}. Page {doc.metadata.get('page')} — {doc.page_content[:300]}")
+
+#query = "Show me charts about financial performance"
+#results = retriever.get_relevant_documents(query)
+
+#print("\n🔍 MultiVectorRetriever results:")
+#for i, doc in enumerate(results, 1):
+ #   print(f"{i}. [{doc.metadata.get('type')}] {doc.page_content[:300]}")
