@@ -8,103 +8,218 @@ from typing import List, Dict
 import yfinance as yf
 import requests
 from newsapi import NewsApiClient
+from tavily import TavilyClient
 from transformers import pipeline
 
-# Сначала подгружаем .env
+# ---------------------------------------------------------------------
+# Load environment variables from .env
+# ---------------------------------------------------------------------
 load_dotenv()
-
-NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")
+NEWSAPI_KEY      = os.getenv("NEWSAPI_KEY")
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-
-if NEWSAPI_KEY is None or ALPHA_VANTAGE_KEY is None:
-    raise RuntimeError("Не получилось загрузить NEWSAPI_KEY или ALPHA_VANTAGE_KEY из .env")
+TAVILY_API_KEY   = os.getenv("TAVILY_API_KEY")
+if not NEWSAPI_KEY or not ALPHA_VANTAGE_KEY or not TAVILY_API_KEY:
+    raise RuntimeError("One or more required API keys are missing in .env")
 
 class RealTimeMarketAgent:
+    """
+    Agent to fetch real-time prices, volume, API news, web-search news via Tavily,
+    and perform sentiment analysis.
+    """
+
     def __init__(self):
-        self.newsapi = NewsApiClient(api_key=NEWSAPI_KEY)
-        self.av_key = ALPHA_VANTAGE_KEY
+        # Initialize API clients and NLP pipeline
+        self.newsapi   = NewsApiClient(api_key=NEWSAPI_KEY)
+        self.av_key    = ALPHA_VANTAGE_KEY
+        self.tavily    = TavilyClient(api_key=TAVILY_API_KEY)
         self.sentiment = pipeline(
             "sentiment-analysis",
             model="nlptown/bert-base-multilingual-uncased-sentiment"
         )
 
+    # -----------------------------------------------------------------
+    # Section: Web-Search News via Tavily
+    # -----------------------------------------------------------------
+    def search_tavily(self, query: str, count: int = 5) -> List:
+        """
+        Perform a Tavily search and return up to `count` raw result items.
+        Handles both list and dict response formats.
+        """
+        resp = self.tavily.search(query)
+        items = list(resp.values()) if isinstance(resp, dict) else resp
+        return items[:count]
+
+    def _normalize_item(self, r, source: str) -> Dict:
+        """
+        Normalize a single Tavily result into a uniform dict:
+        - if r is dict: extract title/url/publishedAt
+        - if r is str: treat it as URL (title=url, date empty)
+        """
+        if isinstance(r, dict):
+            return {
+                "title":       r.get("title", ""),
+                "source":      source,
+                "url":         r.get("url", ""),
+                "publishedAt": r.get("publishedAt", "")[:10]
+            }
+        else:
+            # r is a string URL
+            return {
+                "title":       r,
+                "source":      source,
+                "url":         r,
+                "publishedAt": ""
+            }
+
+    def get_yahoo_finance_news(self, count: int = 5) -> List[Dict]:
+        """
+        Get latest Yahoo Finance headlines via Tavily.
+        """
+        query   = "site:finance.yahoo.com/news"
+        results = self.search_tavily(query, count)
+        return [self._normalize_item(r, "Yahoo Finance") for r in results]
+
+    def get_cnbc_news(self, count: int = 5) -> List[Dict]:
+        """
+        Get latest CNBC headlines via Tavily.
+        """
+        query   = "site:cnbc.com/finance"
+        results = self.search_tavily(query, count)
+        return [self._normalize_item(r, "CNBC") for r in results]
+
+    def get_reuters_news(self, count: int = 5) -> List[Dict]:
+        """
+        Get latest Reuters Business headlines via Tavily.
+        """
+        query   = "site:reuters.com/business"
+        results = self.search_tavily(query, count)
+        return [self._normalize_item(r, "Reuters") for r in results]
+
+    # -----------------------------------------------------------------
+    # Section: Price & Volume Data
+    # -----------------------------------------------------------------
     def get_realtime_price(self, ticker: str) -> Dict:
-        tk = yf.Ticker(ticker)
-        data = tk.history(period="2d", interval="1d")
-        today, yesterday = data.iloc[-1], data.iloc[-2]
-        change_pct = (today["Close"] - yesterday["Close"]) / yesterday["Close"] * 100
+        """
+        Fetch closing prices for the last two days via yfinance,
+        compute percentage change, and return price info.
+        """
+        tk    = yf.Ticker(ticker)
+        df    = tk.history(period="2d", interval="1d")
+        today, prior = df.iloc[-1], df.iloc[-2]
+        pct   = (today["Close"] - prior["Close"]) / prior["Close"] * 100
         return {
-            "price": round(today["Close"], 2),
-            "change_pct": round(change_pct, 2),
-            "currency": tk.info.get("currency", "USD")
+            "price":      round(today["Close"], 2),
+            "change_pct": round(pct, 2),
+            "currency":   tk.info.get("currency", "USD")
         }
 
     def get_intraday_events(self, ticker: str) -> Dict:
+        """
+        Query Alpha Vantage for intraday (60min) series,
+        extract the last two volumes for comparison.
+        """
         url = (
             f"https://www.alphavantage.co/query?"
             f"function=TIME_SERIES_INTRADAY&symbol={ticker}"
             f"&interval=60min&apikey={self.av_key}"
         )
-        js = requests.get(url).json()
-        ts = js.get("Time Series (60min)", {})
+        js    = requests.get(url).json()
+        ts    = js.get("Time Series (60min)", {})
         times = sorted(ts.keys())[-2:]
         latest, prev = ts[times[-1]], ts[times[-2]]
         return {
-            "latest_time": times[-1],
+            "latest_time":  times[-1],
             "latest_volume": int(latest["5. volume"]),
-            "prev_volume": int(prev["5. volume"])
+            "prev_volume":   int(prev["5. volume"])
         }
 
+    # -----------------------------------------------------------------
+    # Section: API-Based News (NewsAPI)
+    # -----------------------------------------------------------------
     def get_latest_news(self, ticker: str, days: int = 1) -> List[Dict]:
-        company = yf.Ticker(ticker).info.get("shortName", ticker)
-        # формируем строку YYYY-MM-DD, как требует NewsAPI
-        from_dt = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-        res = self.newsapi.get_everything(
-            q=f'"{ticker}" OR "{company}"',
-            from_param=from_dt,
+        """
+        Fetch up to 5 relevant news articles from NewsAPI.
+        """
+        name  = yf.Ticker(ticker).info.get("shortName", ticker)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+        res   = self.newsapi.get_everything(
+            q=f'"{ticker}" OR "{name}"',
+            from_param=since,
             sort_by="relevancy",
             language="en",
             page_size=5
         )
-        articles = []
-        for art in res.get("articles", []):
-            articles.append({
-                "title": art["title"],
-                "source": art["source"]["name"],
-                "url": art["url"],
-                "publishedAt": art["publishedAt"][:10],
-                "description": art.get("description", "")
-            })
-        return articles
+        return [
+            {
+                "title":       a["title"],
+                "source":      a["source"]["name"],
+                "url":         a["url"],
+                "publishedAt": a["publishedAt"][:10],
+                "description": a.get("description", "")
+            }
+            for a in res.get("articles", [])
+        ]
 
+    # -----------------------------------------------------------------
+    # Section: Sentiment Analysis
+    # -----------------------------------------------------------------
     def analyze_sentiment(self, texts: List[str]) -> List[Dict]:
+        """
+        Compute sentiment labels and scores for a list of text snippets.
+        """
         results = []
-        for t in texts:
-            out = self.sentiment(t[:512])[0]
+        for txt in texts:
+            out = self.sentiment(txt[:512])[0]
             results.append({"label": out["label"], "score": out["score"]})
         return results
 
+    # -----------------------------------------------------------------
+    # Section: Summarize
+    # -----------------------------------------------------------------
     def summarize(self, ticker: str) -> str:
-        price_info = self.get_realtime_price(ticker)
-        events = self.get_intraday_events(ticker)
-        news = self.get_latest_news(ticker)
+        """
+        Combine price, volume, multiple news sources, and sentiment
+        into a single human-readable summary.
+        """
+        price   = self.get_realtime_price(ticker)
+        volume  = self.get_intraday_events(ticker)
+        api_news = self.get_latest_news(ticker)
+        yf_news = self.get_yahoo_finance_news()
+        cnbc    = self.get_cnbc_news()
+        reuters = self.get_reuters_news()
+        all_news = api_news + yf_news + cnbc + reuters
 
-        sentiments = self.analyze_sentiment([n["title"] for n in news])
+        sentiments = self.analyze_sentiment([n["title"] for n in all_news][:5])
 
         lines = [
-            f"{ticker}: {price_info['price']} {price_info['currency']} ({price_info['change_pct']}% сегодня).",
-            f"Объём за последний час: {events['latest_volume']} (Δ {events['latest_volume'] - events['prev_volume']}).",
-            "Ключевые новости:"
+            f"{ticker}: {price['price']} {price['currency']} ({price['change_pct']}% today).",
+            f"Volume last hour: {volume['latest_volume']} (Δ {volume['latest_volume']-volume['prev_volume']}).",
+            "Top 5 news & sentiment:"
         ]
-        for art, sent in zip(news, sentiments):
+
+        for art, sent in zip(all_news, sentiments):
             emoji = "🔺" if "POS" in sent["label"].upper() or sent["label"].startswith("5") else "🔻"
             lines.append(f"{emoji} {art['title']} ({art['source']}, {art['publishedAt']})")
 
         return "\n".join(lines)
 
+
 if __name__ == "__main__":
-    # маленький тест
-    print("NEWSAPI_KEY:", NEWSAPI_KEY)
-    print("ALPHA_VANTAGE_KEY:", ALPHA_VANTAGE_KEY)
     agent = RealTimeMarketAgent()
+
+    # Test Tavily-based scrapers
+    print("Yahoo Finance headlines:")
+    for y in agent.get_yahoo_finance_news():
+        print("•", y)
+
+    print("\nCNBC headlines:")
+    for c in agent.get_cnbc_news():
+        print("•", c)
+
+    print("\nReuters headlines:")
+    for r in agent.get_reuters_news():
+        print("•", r)
+
+    # Test full summary
+    print("\nSummary for GOOGL:")
     print(agent.summarize("GOOGL"))
