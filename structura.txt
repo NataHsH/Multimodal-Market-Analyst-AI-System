@@ -1,0 +1,28 @@
+/Multimodal_Market_Analyst_AI_System/
+│── main.py                   # Main script to launch agents and orchestrate workflow
+│── config.yaml               # Configuration file (e.g., ChromaDB parameters, API keys)
+│── requirements.txt          # Project dependencies
+│── README.md                 # Project description
+│
+├── agents/
+│   ├── rag_specialist.py     # Multimodal Agentic RAG Specialist
+│   ├── data_analyst.py       # Data Science & Analysis Agent
+│   └── coordinator.py        # Coordinator Agent (merges data, defines logic)
+│
+├── data/
+│   └── raw/                  # Raw data (e.g., IR documents)
+│   └── processed/            # Processed data
+│
+├── utils/
+│   ├── data_loader.py        # Data loading and preprocessing functions
+│   ├── visualizer.py         # Data visualization functions (Plotly, Matplotlib)
+│   └── text_generator.py     # Text generation functions (LangChain, GPT)
+│
+├── api/
+│   ├── graphql_server.py     # GraphQL server implementation
+│   └── schema.py             # GraphQL schema definition
+│
+└── tests/
+    ├── test_data_analyst.py  # Test for data analyst agent
+    ├── test_rag_specialist.py # Test for RAG specialist agent
+    └── test_graphql.py       # Test for GraphQL API
