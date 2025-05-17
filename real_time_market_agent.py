@@ -15,9 +15,9 @@ from transformers import pipeline
 # Load environment variables from .env
 # ---------------------------------------------------------------------
 load_dotenv()
-NEWSAPI_KEY      = os.getenv("NEWSAPI_KEY")
+NEWSAPI_KEY       = os.getenv("NEWSAPI_KEY")
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-TAVILY_API_KEY   = os.getenv("TAVILY_API_KEY")
+TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY")
 if not NEWSAPI_KEY or not ALPHA_VANTAGE_KEY or not TAVILY_API_KEY:
     raise RuntimeError("One or more required API keys are missing in .env")
 
@@ -63,7 +63,6 @@ class RealTimeMarketAgent:
                 "publishedAt": r.get("publishedAt", "")[:10]
             }
         else:
-            # r is a string URL
             return {
                 "title":       r,
                 "source":      source,
@@ -72,27 +71,18 @@ class RealTimeMarketAgent:
             }
 
     def get_yahoo_finance_news(self, count: int = 5) -> List[Dict]:
-        """
-        Get latest Yahoo Finance headlines via Tavily.
-        """
-        query   = "site:finance.yahoo.com/news"
-        results = self.search_tavily(query, count)
+        """Get latest Yahoo Finance headlines via Tavily."""
+        results = self.search_tavily("site:finance.yahoo.com/news", count)
         return [self._normalize_item(r, "Yahoo Finance") for r in results]
 
     def get_cnbc_news(self, count: int = 5) -> List[Dict]:
-        """
-        Get latest CNBC headlines via Tavily.
-        """
-        query   = "site:cnbc.com/finance"
-        results = self.search_tavily(query, count)
+        """Get latest CNBC headlines via Tavily."""
+        results = self.search_tavily("site:cnbc.com/finance", count)
         return [self._normalize_item(r, "CNBC") for r in results]
 
     def get_reuters_news(self, count: int = 5) -> List[Dict]:
-        """
-        Get latest Reuters Business headlines via Tavily.
-        """
-        query   = "site:reuters.com/business"
-        results = self.search_tavily(query, count)
+        """Get latest Reuters Business headlines via Tavily."""
+        results = self.search_tavily("site:reuters.com/business", count)
         return [self._normalize_item(r, "Reuters") for r in results]
 
     # -----------------------------------------------------------------
@@ -137,9 +127,7 @@ class RealTimeMarketAgent:
     # Section: API-Based News (NewsAPI)
     # -----------------------------------------------------------------
     def get_latest_news(self, ticker: str, days: int = 1) -> List[Dict]:
-        """
-        Fetch up to 5 relevant news articles from NewsAPI.
-        """
+        """Fetch up to 5 relevant news articles from NewsAPI."""
         name  = yf.Ticker(ticker).info.get("shortName", ticker)
         since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
         res   = self.newsapi.get_everything(
@@ -166,11 +154,15 @@ class RealTimeMarketAgent:
     def analyze_sentiment(self, texts: List[str]) -> List[Dict]:
         """
         Compute sentiment labels and scores for a list of text snippets.
+        Empty strings yield a default neutral sentiment.
         """
         results = []
         for txt in texts:
-            out = self.sentiment(txt[:512])[0]
-            results.append({"label": out["label"], "score": out["score"]})
+            if not txt:
+                results.append({"label": "NEUTRAL", "score": 0.0})
+            else:
+                out = self.sentiment(txt[:512])[0]
+                results.append({"label": out["label"], "score": out["score"]})
         return results
 
     # -----------------------------------------------------------------
@@ -181,15 +173,19 @@ class RealTimeMarketAgent:
         Combine price, volume, multiple news sources, and sentiment
         into a single human-readable summary.
         """
-        price   = self.get_realtime_price(ticker)
-        volume  = self.get_intraday_events(ticker)
+        price    = self.get_realtime_price(ticker)
+        volume   = self.get_intraday_events(ticker)
         api_news = self.get_latest_news(ticker)
-        yf_news = self.get_yahoo_finance_news()
-        cnbc    = self.get_cnbc_news()
-        reuters = self.get_reuters_news()
+        yf_news  = self.get_yahoo_finance_news()
+        cnbc     = self.get_cnbc_news()
+        reuters  = self.get_reuters_news()
         all_news = api_news + yf_news + cnbc + reuters
 
-        sentiments = self.analyze_sentiment([n["title"] for n in all_news][:5])
+        # Filter out any items with empty title and limit to 5
+        art_news = [n for n in all_news if n.get("title")]
+        art_news = art_news[:5]
+        titles   = [n["title"] for n in art_news]
+        sentiments = self.analyze_sentiment(titles)
 
         lines = [
             f"{ticker}: {price['price']} {price['currency']} ({price['change_pct']}% today).",
@@ -197,7 +193,7 @@ class RealTimeMarketAgent:
             "Top 5 news & sentiment:"
         ]
 
-        for art, sent in zip(all_news, sentiments):
+        for art, sent in zip(art_news, sentiments):
             emoji = "🔺" if "POS" in sent["label"].upper() or sent["label"].startswith("5") else "🔻"
             lines.append(f"{emoji} {art['title']} ({art['source']}, {art['publishedAt']})")
 
