@@ -181,9 +181,7 @@ class RealTimeMarketAgent:
         reuters  = self.get_reuters_news()
         all_news = api_news + yf_news + cnbc + reuters
 
-        # Filter out any items with empty title and limit to 5
-        art_news = [n for n in all_news if n.get("title")]
-        art_news = art_news[:5]
+        art_news = [n for n in all_news if n.get("title")][:5]
         titles   = [n["title"] for n in art_news]
         sentiments = self.analyze_sentiment(titles)
 
@@ -203,7 +201,7 @@ class RealTimeMarketAgent:
 if __name__ == "__main__":
     agent = RealTimeMarketAgent()
 
-    # Test Tavily-based scrapers
+    # Smoke tests for news scrapers
     print("Yahoo Finance headlines:")
     for y in agent.get_yahoo_finance_news():
         print("•", y)
@@ -216,6 +214,13 @@ if __name__ == "__main__":
     for r in agent.get_reuters_news():
         print("•", r)
 
-    # Test full summary
+    # Smoke tests for Alpha Vantage and yfinance
+    print("\nIntraday events for GOOGL:")
+    print(agent.get_intraday_events("GOOGL"))
+
+    print("\nRealtime price for GOOGL:")
+    print(agent.get_realtime_price("GOOGL"))
+
+    # Full summary
     print("\nSummary for GOOGL:")
     print(agent.summarize("GOOGL"))
