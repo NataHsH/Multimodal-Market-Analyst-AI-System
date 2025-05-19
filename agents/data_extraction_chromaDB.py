@@ -3,6 +3,13 @@
 import pandas as pd
 import chromadb
 
+import sys
+sys.path.insert(0, 'C:\\path\\to\\project_root\\chroma_text')
+
+import os
+print(os.path.exists('C:\\path\\to\\project_root\\chroma_text'))
+
+
 def extract_data_from_chromadb(company_name: str, data_type: str, time_frame: str) -> pd.DataFrame:
     """
     Extract data from ChromaDB collection for a given company, data type, and year (time_frame).
