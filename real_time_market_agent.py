@@ -1,161 +1,108 @@
-# real_time_market_agent.py
-
-from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict
+from dotenv import load_dotenv
 
 import yfinance as yf
 import requests
 from newsapi import NewsApiClient
 from tavily import TavilyClient
 from transformers import pipeline
+from fpdf import FPDF
 
-# ---------------------------------------------------------------------
-# Load environment variables from .env
-# ---------------------------------------------------------------------
+# ---------------------------- ENVIRONMENT ----------------------------
 load_dotenv()
+
 NEWSAPI_KEY       = os.getenv("NEWSAPI_KEY")
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 TAVILY_API_KEY    = os.getenv("TAVILY_API_KEY")
-if not NEWSAPI_KEY or not ALPHA_VANTAGE_KEY or not TAVILY_API_KEY:
-    raise RuntimeError("One or more required API keys are missing in .env")
+GOOGLE_API_KEY    = os.getenv("GOOGLE_API_KEY")
 
+if not all([NEWSAPI_KEY, ALPHA_VANTAGE_KEY, TAVILY_API_KEY, GOOGLE_API_KEY]):
+    raise RuntimeError("Missing one or more required API keys in .env")
+
+# ---------------------------- AGENT CLASS ----------------------------
 class RealTimeMarketAgent:
-    """
-    Agent to fetch real-time prices, volume, API news, web-search news via Tavily,
-    and perform sentiment analysis.
-    """
-
     def __init__(self):
-        # Initialize API clients and NLP pipeline
         self.newsapi   = NewsApiClient(api_key=NEWSAPI_KEY)
         self.av_key    = ALPHA_VANTAGE_KEY
         self.tavily    = TavilyClient(api_key=TAVILY_API_KEY)
-        self.sentiment = pipeline(
-            "sentiment-analysis",
-            model="nlptown/bert-base-multilingual-uncased-sentiment"
-        )
+        self.sentiment = pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
 
-    # -----------------------------------------------------------------
-    # Section: Web-Search News via Tavily
-    # -----------------------------------------------------------------
-    def search_tavily(self, query: str, count: int = 5) -> List:
-        """
-        Perform a Tavily search and return up to `count` raw result items.
-        Handles both list and dict response formats.
-        """
+    def get_yahoo_finance_news(self, count: int = 5) -> List[Dict]:
+        return self._search_news("site:finance.yahoo.com/news", "Yahoo Finance", count)
+
+    def get_cnbc_news(self, count: int = 5) -> List[Dict]:
+        return self._search_news("site:cnbc.com/finance", "CNBC", count)
+
+    def get_reuters_news(self, count: int = 5) -> List[Dict]:
+        return self._search_news("site:reuters.com/business", "Reuters", count)
+
+    def _search_news(self, query: str, source: str, count: int = 5) -> List[Dict]:
         resp = self.tavily.search(query)
         items = list(resp.values()) if isinstance(resp, dict) else resp
-        return items[:count]
+        return [self._normalize_item(r, source) for r in items[:count]]
 
     def _normalize_item(self, r, source: str) -> Dict:
-        """
-        Normalize a single Tavily result into a uniform dict:
-        - if r is dict: extract title/url/publishedAt
-        - if r is str: treat it as URL (title=url, date empty)
-        """
         if isinstance(r, dict):
             return {
-                "title":       r.get("title", ""),
-                "source":      source,
-                "url":         r.get("url", ""),
+                "title": r.get("title", ""),
+                "source": source,
+                "url": r.get("url", ""),
                 "publishedAt": r.get("publishedAt", "")[:10]
             }
         else:
             return {
-                "title":       r,
-                "source":      source,
-                "url":         r,
+                "title": r,
+                "source": source,
+                "url": r,
                 "publishedAt": ""
             }
 
-    def get_yahoo_finance_news(self, count: int = 5) -> List[Dict]:
-        """Get latest Yahoo Finance headlines via Tavily."""
-        results = self.search_tavily("site:finance.yahoo.com/news", count)
-        return [self._normalize_item(r, "Yahoo Finance") for r in results]
-
-    def get_cnbc_news(self, count: int = 5) -> List[Dict]:
-        """Get latest CNBC headlines via Tavily."""
-        results = self.search_tavily("site:cnbc.com/finance", count)
-        return [self._normalize_item(r, "CNBC") for r in results]
-
-    def get_reuters_news(self, count: int = 5) -> List[Dict]:
-        """Get latest Reuters Business headlines via Tavily."""
-        results = self.search_tavily("site:reuters.com/business", count)
-        return [self._normalize_item(r, "Reuters") for r in results]
-
-    # -----------------------------------------------------------------
-    # Section: Price & Volume Data
-    # -----------------------------------------------------------------
     def get_realtime_price(self, ticker: str) -> Dict:
-        """
-        Fetch closing prices for the last two days via yfinance,
-        compute percentage change, and return price info.
-        """
-        tk    = yf.Ticker(ticker)
-        df    = tk.history(period="2d", interval="1d")
+        tk = yf.Ticker(ticker)
+        df = tk.history(period="2d", interval="1d")
         today, prior = df.iloc[-1], df.iloc[-2]
-        pct   = (today["Close"] - prior["Close"]) / prior["Close"] * 100
+        pct = (today["Close"] - prior["Close"]) / prior["Close"] * 100
         return {
-            "price":      round(today["Close"], 2),
+            "price": round(today["Close"], 2),
             "change_pct": round(pct, 2),
-            "currency":   tk.info.get("currency", "USD")
+            "currency": tk.info.get("currency", "USD")
         }
 
     def get_intraday_events(self, ticker: str) -> Dict:
-        """
-        Query Alpha Vantage for intraday (60min) series,
-        extract the last two volumes for comparison.
-        """
         url = (
-            f"https://www.alphavantage.co/query?"
-            f"function=TIME_SERIES_INTRADAY&symbol={ticker}"
-            f"&interval=60min&apikey={self.av_key}"
+            f"https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY"
+            f"&symbol={ticker}&interval=60min&apikey={self.av_key}"
         )
-        js    = requests.get(url).json()
-        ts    = js.get("Time Series (60min)", {})
+        ts = requests.get(url).json().get("Time Series (60min)", {})
         times = sorted(ts.keys())[-2:]
         latest, prev = ts[times[-1]], ts[times[-2]]
         return {
-            "latest_time":  times[-1],
+            "latest_time": times[-1],
             "latest_volume": int(latest["5. volume"]),
-            "prev_volume":   int(prev["5. volume"])
+            "prev_volume": int(prev["5. volume"])
         }
 
-    # -----------------------------------------------------------------
-    # Section: API-Based News (NewsAPI)
-    # -----------------------------------------------------------------
     def get_latest_news(self, ticker: str, days: int = 1) -> List[Dict]:
-        """Fetch up to 5 relevant news articles from NewsAPI."""
-        name  = yf.Ticker(ticker).info.get("shortName", ticker)
+        name = yf.Ticker(ticker).info.get("shortName", ticker)
         since = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
-        res   = self.newsapi.get_everything(
+        res = self.newsapi.get_everything(
             q=f'"{ticker}" OR "{name}"',
             from_param=since,
             sort_by="relevancy",
             language="en",
             page_size=5
         )
-        return [
-            {
-                "title":       a["title"],
-                "source":      a["source"]["name"],
-                "url":         a["url"],
-                "publishedAt": a["publishedAt"][:10],
-                "description": a.get("description", "")
-            }
-            for a in res.get("articles", [])
-        ]
+        return [{
+            "title": a["title"],
+            "source": a["source"]["name"],
+            "url": a["url"],
+            "publishedAt": a["publishedAt"][:10],
+            "description": a.get("description", "")
+        } for a in res.get("articles", [])]
 
-    # -----------------------------------------------------------------
-    # Section: Sentiment Analysis
-    # -----------------------------------------------------------------
     def analyze_sentiment(self, texts: List[str]) -> List[Dict]:
-        """
-        Compute sentiment labels and scores for a list of text snippets.
-        Empty strings yield a default neutral sentiment.
-        """
         results = []
         for txt in texts:
             if not txt:
@@ -165,62 +112,83 @@ class RealTimeMarketAgent:
                 results.append({"label": out["label"], "score": out["score"]})
         return results
 
-    # -----------------------------------------------------------------
-    # Section: Summarize
-    # -----------------------------------------------------------------
     def summarize(self, ticker: str) -> str:
-        """
-        Combine price, volume, multiple news sources, and sentiment
-        into a single human-readable summary.
-        """
-        price    = self.get_realtime_price(ticker)
-        volume   = self.get_intraday_events(ticker)
+        price = self.get_realtime_price(ticker)
+        volume = self.get_intraday_events(ticker)
         api_news = self.get_latest_news(ticker)
-        yf_news  = self.get_yahoo_finance_news()
-        cnbc     = self.get_cnbc_news()
-        reuters  = self.get_reuters_news()
-        all_news = api_news + yf_news + cnbc + reuters
-
-        art_news = [n for n in all_news if n.get("title")][:5]
-        titles   = [n["title"] for n in art_news]
-        sentiments = self.analyze_sentiment(titles)
+        all_news = api_news + self.get_yahoo_finance_news() + self.get_cnbc_news() + self.get_reuters_news()
+        news_items = [n for n in all_news if n.get("title")][:5]
+        sentiments = self.analyze_sentiment([n["title"] for n in news_items])
 
         lines = [
-            f"{ticker}: {price['price']} {price['currency']} ({price['change_pct']}% today).",
-            f"Volume last hour: {volume['latest_volume']} (Δ {volume['latest_volume']-volume['prev_volume']}).",
-            "Top 5 news & sentiment:"
+            f"{ticker.upper()}: {price['price']} {price['currency']} ({price['change_pct']}% today)",
+            f"Volume last hour: {volume['latest_volume']} (\u0394 {volume['latest_volume'] - volume['prev_volume']})",
+            "Top 5 news headlines and sentiment:"
         ]
-
-        for art, sent in zip(art_news, sentiments):
-            emoji = "🔺" if "POS" in sent["label"].upper() or sent["label"].startswith("5") else "🔻"
-            lines.append(f"{emoji} {art['title']} ({art['source']}, {art['publishedAt']})")
+        for n, s in zip(news_items, sentiments):
+            emoji = "\U0001F53A" if "POS" in s["label"].upper() or s["label"].startswith("5") else "\U0001F53B"
+            lines.append(f"{emoji} {n['title']} ({n['source']}, {n['publishedAt']})")
 
         return "\n".join(lines)
 
+# ---------------------------- LANGCHAIN AGENT WRAPPER ----------------------------
+
+from langchain_core.tools import Tool
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import create_tool_calling_agent, AgentExecutor
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.messages import SystemMessage
+
+# Build tools from existing RealTimeMarketAgent
+agent_instance = RealTimeMarketAgent()
+
+from langchain_core.tools import StructuredTool
+
+
+def get_buy_signal(ticker: str) -> str:
+    price_info = agent_instance.get_realtime_price(ticker)
+    change_pct = price_info["change_pct"]
+    news = agent_instance.get_latest_news(ticker)
+    sentiments = agent_instance.analyze_sentiment([n["title"] for n in news])
+    pos_count = sum(1 for s in sentiments if "POS" in s["label"].upper() or s["label"].startswith("5"))
+    neg_count = sum(1 for s in sentiments if "NEG" in s["label"].upper() or s["label"].startswith("1"))
+
+    if change_pct > 0 and pos_count > neg_count:
+        return f"🔺 BUY signal for {ticker}: Positive trend ({change_pct:+.2f}%), sentiment is mostly positive."
+    elif change_pct < 0 and neg_count > pos_count:
+        return f"🔻 SELL signal for {ticker}: Negative trend ({change_pct:+.2f}%), sentiment is mostly negative."
+    else:
+        return f"⏸ HOLD signal for {ticker}: No clear trend or mixed sentiment."
+
+
+tools = [
+    Tool(name="get_realtime_price", func=lambda x: str(agent_instance.get_realtime_price(x)), description="Get current stock price and daily change."),
+    Tool(name="get_intraday_events", func=lambda x: str(agent_instance.get_intraday_events(x)), description="Get intraday trading volume changes."),
+    Tool(name="get_latest_news", func=lambda x: str(agent_instance.get_latest_news(x)), description="Get latest company news."),
+    Tool(name="summarize_market", func=agent_instance.summarize, description="Generate a full market summary for a stock ticker."),
+    Tool(name="get_buy_signal", func=get_buy_signal, description="Returns BUY/SELL/HOLD signal based on price change and sentiment.")
+]
+
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", google_api_key=GOOGLE_API_KEY)
+
+prompt = ChatPromptTemplate.from_messages([
+    SystemMessage(content="You are a financial assistant. Use the tools provided to give accurate and up-to-date market answers."),
+    MessagesPlaceholder(variable_name="agent_scratchpad"),
+    
+    ("human", "{input}")
+])
+
+agent = create_tool_calling_agent(llm=llm, tools=tools, prompt=prompt)
+agent_executor = AgentExecutor(agent=agent, tools=tools)
+
+# ---------------------------- MAIN ----------------------------
 
 if __name__ == "__main__":
-    agent = RealTimeMarketAgent()
+    question = input("Enter your market question (e.g. 'Summarize TSLA'): ")
+    result = agent_executor.invoke({"input": question})
+    print("Market Assistant Result:" + "="*40)
+    if isinstance(result, dict) and "output" in result:
+        print(result["output"])
+    else:
+        print(result)
 
-    # Smoke tests for news scrapers
-    print("Yahoo Finance headlines:")
-    for y in agent.get_yahoo_finance_news():
-        print("•", y)
-
-    print("\nCNBC headlines:")
-    for c in agent.get_cnbc_news():
-        print("•", c)
-
-    print("\nReuters headlines:")
-    for r in agent.get_reuters_news():
-        print("•", r)
-
-    # Smoke tests for Alpha Vantage and yfinance
-    print("\nIntraday events for GOOGL:")
-    print(agent.get_intraday_events("GOOGL"))
-
-    print("\nRealtime price for GOOGL:")
-    print(agent.get_realtime_price("GOOGL"))
-
-    # Full summary
-    print("\nSummary for GOOGL:")
-    print(agent.summarize("GOOGL"))

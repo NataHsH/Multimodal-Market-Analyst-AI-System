@@ -11,3 +11,16 @@ beautifulsoup4
 pytest
 tavily-python>=0.7.2
 pytest
+langchain
+tavily-python
+newsapi-python
+yfinance
+transformers
+python-dotenv
+tavily
+langchain
+langchain-community
+openai
+fpdf-1.7.2
+fpdf2-2.8.3
+langchain-google-genai
