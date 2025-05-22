@@ -1,47 +1,59 @@
 # data_extraction_chromaDB.py
 
+import os
+import sys
 import pandas as pd
 import chromadb
+from datetime import datetime
+from langchain.tools import tool
 
-import sys
-sys.path.insert(0, 'C:\\path\\to\\project_root\\chroma_text')
+# Define and register chroma_text path
+chroma_text_path = os.path.join(os.getcwd(), 'agents', 'chroma_text')
+sys.path.insert(0, chroma_text_path)
 
-import os
-print(os.path.exists('C:\\path\\to\\project_root\\chroma_text'))
-
-
-def extract_data_from_chromadb(company_name: str, data_type: str, time_frame: str) -> pd.DataFrame:
+@tool("load_company_data_from_chromadb", return_direct=False)
+def load_company_data(company_name: str, years: int = 5) -> pd.DataFrame:
     """
-    Extract data from ChromaDB collection for a given company, data type, and year (time_frame).
-    Returns a DataFrame with columns: ['date', 'stock_price', 'company'].
+    Load historical stock price data from ChromaDB for the specified company and number of past years.
+    Returns a DataFrame with columns: ['ds', 'y', 'company'].
     """
+    current_year = datetime.now().year
+    start_year = current_year - years
+    all_data = []
+
     client = chromadb.Client()
-    collection = client.get_collection('financial_data')  # Убедись, что имя коллекции правильное
+    collection = client.get_collection('chroma_text')
 
-    results = collection.query(
-        query_texts=[f"{company_name} {data_type}"],
-        n_results=1000,
-        where={"company": company_name, "data_type": data_type, "year": time_frame}
-    )
+    for year in range(start_year, current_year):
+        results = collection.query(
+            query_texts=[f"{company_name} stock_price"],
+            n_results=1000,
+            where={"company": company_name, "data_type": "stock_price", "year": str(year)}
+        )
 
-    dates = []
-    prices = []
+        dates = []
+        prices = []
 
-    for metadata, document in zip(results['metadatas'], results['documents']):
-        date_val = metadata.get('date')
-        try:
-            price_val = float(document)
-        except (ValueError, TypeError):
-            price_val = None
+        for metadata, document in zip(results['metadatas'], results['documents']):
+            date_val = metadata.get('date')
+            try:
+                price_val = float(document)
+            except (ValueError, TypeError):
+                price_val = None
 
-        if date_val and price_val is not None:
-            dates.append(date_val)
-            prices.append(price_val)
+            if date_val and price_val is not None:
+                dates.append(date_val)
+                prices.append(price_val)
 
-    df = pd.DataFrame({
-        'date': pd.to_datetime(dates),
-        'stock_price': prices,
-        'company': company_name
-    })
+        df = pd.DataFrame({
+            'ds': pd.to_datetime(dates),
+            'y': prices,
+            'company': company_name
+        })
 
-    return df
+        all_data.append(df)
+
+    if not all_data:
+        raise ValueError(f"No data found for {company_name}.")
+
+    return pd.concat(all_data).reset_index(drop=True)
