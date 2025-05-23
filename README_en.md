@@ -1,132 +1,145 @@
-# Multimodal Market Analyst AI System 🌐
+# 🚀 Multimodal Market Analysis AI System
 
-A multimodal AI system for financial analysis based on IR documents from Apple, Microsoft, Google, NVIDIA, and Meta.
-
----
-
-## 🚀 Features
-
-- Analysis of IR documents (PDFs, presentations, transcripts)
-- Forecasting and visualizations
-- Real-time market data and news
-- Coordination of multiple agents for combined analysis
-- Response quality monitoring (optional)
+This project is a modular, agent-based AI system for analyzing financial market data using multimodal inputs such as investor reports, charts, and real-time news. It was developed as part of a university Abschlussprojekt (final project) to showcase advanced data retrieval, analysis, and visualization techniques in financial contexts.
 
 ---
 
-## 🛠️ Installation
+## 📦 Project Structure
 
-```bash
-pip install -r requirements.txt
-```
+The system is composed of four specialized AI agents, coordinated by a central supervisor agent:
 
----
+### 1. 🧠 Multimodal RAG Agent
+- **Purpose:** Extracts relevant information from IR documents (PDFs) using vector similarity search and metadata-aware indexing.
+- **Technologies:** LangChain, pdfplumber, ChromaDB, SentenceTransformers, Google Gemini
+- **Functions:**
+  - Parses financial documents and indexes both text and tables.
+  - Retrieves citations with company, year, form type, and page references.
+  - Embeds and stores document chunks for retrieval.
 
-## ✅ Start the Application
+### 2. 📈 Data Science & Forecasting Agent (DS Agent)
+- **Purpose:** Performs time series analysis and generates simple linear forecasts.
+- **Technologies:** LangChain, matplotlib, regular expressions, Google Gemini
+- **Functions:**
+  - Parses numeric values from yearly textual data.
+  - Performs delta-based extrapolation for future value.
+  - Generates and saves forecast plots.
 
-```bash
-python app.py
-```
+### 3. 🌍 Real-Time Market Agent
+- **Purpose:** Gathers current financial news, stock prices, intraday data, and performs sentiment analysis.
+- **Technologies:** yFinance, Alpha Vantage, NewsAPI, Tavily, HuggingFace Transformers, LangChain
+- **Functions:**
+  - Collects news from Yahoo Finance, CNBC, Reuters.
+  - Retrieves price changes and volume activity.
+  - Performs multilingual sentiment analysis.
+  - Suggests BUY/SELL/HOLD signals based on data.
 
----
-
-## 💡 Example Queries
-
-1. **Earnings Presentation Analysis:**
-   - Query: "Summarize the last quarterly performance of NVIDIA."
-   - Expected Output: "NVIDIA's revenue increased by 18% in Q4 FY24 (Source: NVIDIA Q4 FY24 Earnings Slides, Page 5)."
-
-2. **Forecast for Microsoft:**
-   - Query: "Generate a forecast for Microsoft's stock price in the next quarter."
-   - Expected Output: Visualization with Plotly and a forecast summary.
-
-3. **Latest Market News:**
-   - Query: "What are the latest news about Google?"
-   - Expected Output: "Google's stock rose by 3% today due to positive AI product announcements (Source: CNBC, May 2025)."
-
----
-
-## 📦 Data Sources
-
-- IR documents from Apple, Microsoft, Google, NVIDIA, and Meta (2020–2024)
-- Document Types:
-  - Annual Reports (10-K)
-  - Quarterly Reports (10-Q)
-  - Earnings Presentations and Transcripts
-  - Investor Presentations, Charts
+### 4. 🧭 Coordinator Agent
+- **Purpose:** Orchestrates and delegates tasks to the appropriate specialized agents.
+- **Technologies:** LangChain, Gradio
+- **Functions:**
+  - Exposes a unified chat interface via Gradio.
+  - Manages interaction flow and composes multimodal responses.
+  - Handles fallback and error reporting.
 
 ---
 
-## 🔥 Technologies
+## 🛠️ Technology Stack
 
-| Agent            | Tools/Models                                |
-|------------------|---------------------------------------------|
-| RAG Specialist   | CLIP, SentenceTransformers, Chroma, Gemini  |
-| Analysis Agent   | Pandas, Matplotlib, Plotly, Prophet         |
-| Web Search Agent | SerpAPI, Tavily, BeautifulSoup              |
-| Coordinator      | LangChain, LangGraph                       |
-| QA Agent (opt.)  | BERT, GPT-Moderation-API                   |
+- **Language:** Python
+- **Frameworks/Libraries:** LangChain, Google Gemini, Gradio, Matplotlib, HuggingFace, pdfplumber, yfinance, ChromaDB
+- **APIs used:** Google Generative AI, Tavily, Alpha Vantage, NewsAPI
 
 ---
 
-## 🎯 Workflow (Scenario)
+## 🗂️ Dataset
 
-1. **User Query:**
-   - "Analyze Meta's stock performance over the last year and provide a forecast for the next quarter."
+The system uses investor relations documents (2020–2024) from:
 
-2. **Coordinator Agent:**
-   - Splits the query into three subtasks:
-     - Data retrieval from IR documents (RAG Specialist)
-     - Forecasting based on historical data (Analysis Agent)
-     - Real-time updates from web sources (Web Search Agent)
+- Apple
+- Microsoft
+- Google (Alphabet)
+- NVIDIA
+- Meta
 
-3. **Data Processing and Output:**
-   - Aggregation of results and presentation through the Gradio interface.
+Document types include:
 
----
-
-## 📅 Timeline & Milestones
-
-**Week 1:**
-- Data collection and preprocessing
-- Implementation of RAG and Analysis Agents
-- Initial module testing
-
-**Week 2:**
-- Integration of Web Search Agent
-- Coordinator Agent development
-- Gradio interface development
-- End-to-end testing and fine-tuning
+- Annual & Quarterly Reports (10-K, 10-Q)
+- Presentation slides
+- Transcripts from earnings calls
+- Financial tables and charts
 
 ---
 
-## 🧑‍💻 User Guide
+## 🧪 Development Workflow
 
-- Open the Gradio interface via the provided link.
-- Enter the desired query (e.g., "Summarize the latest earnings presentation from Apple").
-- Wait for all agents to complete their tasks.
-- Review the results as text output and visualizations.
+### Week 1:
+- Setup and cleaning of IR documents (PDF)
+- Created and tested multimodal document extractor and embedder
+- Implemented ChromaDB storage and retrieval
+- Implemented data science forecasting tool
 
----
-
-## 📑 License
-
-This project is licensed under the MIT License. For more details, see the `LICENSE` file.
-
----
-
-## 🎬 Demo & Presentation
-
-- Run the Gradio app locally using `python app.py` or access the hosted version on Hugging Face Spaces.
-- Example inputs and expected outputs are outlined in the `README.md`.
-- For presentations: Follow the defined workflow and demonstrate the responses from each agent in real-time.
+### Week 2:
+- Integrated real-time APIs and sentiment models
+- Built the central coordinator agent
+- Deployed Gradio prototype
+- Finalized agent coordination and unified I/O logic
 
 ---
 
-## ✅ Next Steps
+## 🖼️ Sample User Query
 
-- Expand the QA Agent for quality checks and ethical validation.
-- Integrate additional data sources for real-time forecasting.
-- Optimize the models by fine-tuning on financial datasets.
+> “What are Apple’s net sales in 2022, 2023, and 2024? Generate a forecast.”
+
+System response:
+
+- Retrieved data from original IR reports
+- Visualized forecast as a PNG chart
+- Included source citations: “Apple, 2024, 10-K, page 12”
 
 ---
+
+## 🧪 How to Run
+
+1. Install dependencies:  
+   ```bash
+   pip install -r requirements.txt
+
+2. Setup environment:
+    .env must contain API keys for NewsAPI, Tavily, Alpha Vantage, Google.
+
+3. Launch UI:
+    python app.py
+    
+---
+
+## 📊 Output
+
+    - Structured answer with sources (RAG)
+
+    - Financial forecast with chart (DS Agent)
+
+    - Real-time summary + sentiment (Web Agent)
+        
+---
+
+## 📍 Authors
+
+Project team at Hochschule Hannover
+
+   - Supervisor: Hussam Alafandi
+   
+   - Team members:
+
+        - Volodymyr Kyryliuk – Multimodal Agent Design
+
+        - Nataliia Honcharova – Data Science & Forecasting  
+
+        - Volodymyr Tymoshchuk – Real-Time Data Integration
+
+---
+
+## 📃 License
+
+This project was developed at Hochschule Hannover as part of an academic course.
+
+Licensed under the [MIT License](LICENSE).
