@@ -1,5 +1,7 @@
 # 🚀 Multimodales Marktanalyse-KI-System
 
+🔗 **Live Demo on Hugging Face Spaces:** [https://huggingface.co/spaces/vladimir707/Multimodal_Market_Analyst_AI_System](https://huggingface.co/spaces/vladimir707/Multimodal_Market_Analyst_AI_System)
+
 Dieses Projekt ist ein modulares, agentenbasiertes KI-System zur Analyse von Finanzmarktdaten unter Verwendung multimodaler Eingaben wie Investorenberichte, Diagramme und Echtzeitnachrichten. Es wurde im Rahmen eines Hochschul-Abschlussprojekts entwickelt, um fortgeschrittene Techniken zur Datengewinnung, -analyse und -visualisierung in finanziellen Kontexten zu demonstrieren.
 
 ---
