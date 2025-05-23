@@ -138,6 +138,10 @@ Project team at Hochschule Hannover
 
 ---
 
+https://huggingface.co/spaces/vladimir707/Multimodal_Market_Analyst_AI_System
+
+---
+
 ## 📃 License
 
 This project was developed at Hochschule Hannover as part of an academic course.
