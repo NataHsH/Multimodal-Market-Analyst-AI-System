@@ -1,5 +1,7 @@
 # 🚀 Multimodal Market Analysis AI System
 
+🔗 **Live Demo on Hugging Face Spaces:** [https://huggingface.co/spaces/vladimir707/Multimodal_Market_Analyst_AI_System](https://huggingface.co/spaces/vladimir707/Multimodal_Market_Analyst_AI_System)
+
 This project is a modular, agent-based AI system for analyzing financial market data using multimodal inputs such as investor reports, charts, and real-time news. It was developed as part of a university Abschlussprojekt (final project) to showcase advanced data retrieval, analysis, and visualization techniques in financial contexts.
 
 ---
